@@ -26,7 +26,7 @@ public class Worker {
 
   public void run() {
     ServerSocket serverSocket;
-    Socket socket;
+    Socket socket, socketSchd;
     DataInputStream dis;
     DataOutputStream dos;
     int workerId;
@@ -62,21 +62,21 @@ public class Worker {
         //accept an connection from scheduler
         socket = serverSocket.accept();
         dis = new DataInputStream(socket.getInputStream());
-        dos = new DataOutputStream(socket.getOutputStream());
 
         if(dis.readInt() != Opcode.new_tasks)
           throw new Exception("worker error");
 
-        //get jobId, fileName, className, and the assigned task ids
+        //get jobId, fileName, className, and the assigned task id
         int jobId = dis.readInt();
         String fileName = new String("fs/."+jobId+".jar");
         String className = dis.readUTF();
-        int taskIdStart = dis.readInt();
-        int numTasks = dis.readInt();
-
+        int taskId = dis.readInt();
+        dis.close();
+        socket.close();
         //read the job file from shared file system
         Job job = JobFactory.getJob(fileName, className);
-
+        job.task(taskId);
+        /*
         //execute the assigned tasks
         for(int taskId=taskIdStart; taskId<taskIdStart+numTasks; taskId++){
           job.task(taskId);
@@ -85,13 +85,16 @@ public class Worker {
           dos.writeInt(taskId);
           dos.flush();
         }
-
+        */
         //disconnect
-        dos.writeInt(Opcode.worker_finish);
+        socketSchd = new Socket(schedulerAddr, schedulerPort);
+        dos = new DataOutputStream(socketSchd.getOutputStream());
+        dos.writeInt(Opcode.task_finish);
+        dos.writeInt(Opcode.jobId);
+        dos.writeInt(worker_id);
         dos.flush();
-        dis.close();
         dos.close();
-        socket.close();
+        
       }
     } catch(Exception e) {
       e.printStackTrace();
