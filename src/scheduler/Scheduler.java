@@ -1,0 +1,288 @@
+package scheduler;
+
+import java.io.*;
+import java.net.*;
+import java.util.ArrayList;
+import java.util.LinkedList;
+import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.LinkedBlockingQueue;
+
+
+import common.*;
+
+public class Scheduler {
+
+  int schedulerPort;
+  Cluster cluster;
+  int jobIdNext;
+	start_jobs executor;
+	
+
+  Scheduler(int p) {
+    schedulerPort = p;
+		executor = new start_jobs();
+		executor.start();
+    cluster = new Cluster();
+    jobIdNext = 1;
+  }
+	
+	
+
+  public static void main(String[] args) {
+    Scheduler scheduler = new Scheduler(Integer.parseInt(args[0]));
+    scheduler.run();
+  }
+	
+	public void run(){
+		try{
+			//create a ServerSocket listening at specified port
+      ServerSocket serverSocket = new ServerSocket(schedulerPort);
+			
+			while(true){
+				//create a new socket thread
+				Socket socket = serverSocket.accept();
+				DataInputStream dis = new DataInputStream(socket.getInputStream());
+				DataOutputStream dos = new DataOutputStream(socket.getOutputStream());
+				
+				int code = dis.readInt();
+				if(code == Opcode.new_worker){
+          //include the worker into the cluster
+          WorkerNode n = cluster.createWorkerNode( dis.readUTF(), dis.readInt());
+          if( n == null){
+            dos.writeInt(Opcode.error);
+          }
+          else{
+            dos.writeInt(Opcode.success);
+            dos.writeInt(n.id);
+            System.out.println("Worker "+n.id+" "+n.addr+" "+n.port+" created");
+          }
+          dos.flush();
+					dis.close();
+        	dos.close();
+        	socket.close();
+        }
+
+		if(code == Opcode.new_job){
+			String className = dis.readUTF();
+			long len = dis.readLong();
+
+          //send out the jobId
+			int jobId = jobIdNext++;
+			dos.writeInt(jobId);
+			dos.flush();
+
+			//receive the job file and store it to the shared filesystem
+			String fileName = new String("fs/."+jobId+".jar");
+			FileOutputStream fos = new FileOutputStream(fileName);
+			int count;
+			byte[] buf = new byte[65536];
+			while(len > 0) {
+				count = dis.read(buf);
+				if(count > 0){
+				fos.write(buf, 0, count);
+				len -= count;
+				}
+			}
+			fos.flush();
+			fos.close();
+
+			//get the tasks
+			int taskIdStart = 0;
+			int numTasks = JobFactory.getJob(fileName, className).getNumTasks();
+			job_request temp = new job_request(jobId, className, numTasks, socket);
+			executor.push(temp);
+		}
+
+
+				
+			}
+		}catch(Exception e) {
+      e.printStackTrace();
+    }
+		
+	}
+
+
+
+//the data structure for a cluster of worker nodes
+  class Cluster {
+    ArrayList<WorkerNode> workers; //all the workers
+    LinkedList<WorkerNode> freeWorkers; //the free workers
+    
+    Cluster() {
+      workers = new ArrayList<WorkerNode>();
+      freeWorkers = new LinkedList<WorkerNode>();
+    }
+
+    WorkerNode createWorkerNode(String addr, int port) {
+      WorkerNode n = null;
+
+      synchronized(workers) {
+        n = new WorkerNode(workers.size(), addr, port);
+        workers.add(n);
+      }
+      addFreeWorkerNode(n);
+
+      return n;
+    }
+
+    WorkerNode getFreeWorkerNode() {
+      WorkerNode n = null;
+
+      try{
+        synchronized(freeWorkers) {
+          while(freeWorkers.size() == 0) {
+            freeWorkers.wait();
+          }
+          n = freeWorkers.remove();
+        }
+        n.status = 2;
+      } catch(Exception e) {
+        e.printStackTrace();
+      }
+
+      return n;
+    }
+
+    void addFreeWorkerNode(WorkerNode n) {
+      n.status = 1;
+      synchronized(freeWorkers) {
+        freeWorkers.add(n);
+        freeWorkers.notifyAll();
+      }
+    }
+  }
+
+  //the data structure of a worker node
+  class WorkerNode{
+    int id;
+    String addr;
+    int port;
+    int status; //WorkerNode status: 0-sleep, 1-free, 2-busy, 4-failed
+	private SocketWorker mSocket = null;
+	
+
+    WorkerNode(int i, String a, int p) {
+      id = i;
+      addr = a;
+      port = p;
+      status = 0;
+    }
+	
+	public void connect_socket(SocketWorker sock){mSocket = sock; mSocket.start();}
+
+		
+  }
+  
+  class SocketWorker extends Thread{
+	private WorkerNode node;
+	private Socket mSocket;
+	private int jobId;
+	private String className;
+	private int taskIdStart;
+	private int numTasks;
+	DataInputStream dis; 
+	DataOutputStream dos;
+	SocketWorker(WorkerNode mnode, job_request request){
+		 node = mnode;
+		 mSocket = request.socket;
+		 jobId = request.jobId;
+		 className = request.className;
+		 taskIdStart = request.taskIdStart;
+		 numTasks = request.numTasks;
+	}
+	
+	public void run(){
+		try{
+				//run worker information in here
+			DataInputStream dis = new DataInputStream(mSocket.getInputStream());
+			DataOutputStream dos = new DataOutputStream(mSocket.getOutputStream());
+
+			dos.writeInt(Opcode.job_start);
+			dos.flush();
+
+			  //assign the tasks to the worker
+			Socket workerSocket = new Socket(node.addr, node.port);
+			DataInputStream wis = new DataInputStream(workerSocket.getInputStream());
+			DataOutputStream wos = new DataOutputStream(workerSocket.getOutputStream());
+			  
+			wos.writeInt(Opcode.new_tasks);
+			wos.writeInt(jobId);
+			wos.writeUTF(className);
+			wos.writeInt(taskIdStart);
+			wos.writeInt(numTasks);
+			wos.flush();
+
+			  //repeatedly process the worker's feedback
+			while(wis.readInt() == Opcode.task_finish) {
+				dos.writeInt(Opcode.job_print);
+				dos.writeUTF("task "+wis.readInt()+" finished on worker "+node.id);
+				dos.flush();
+			}
+			
+			wis.close();
+			wos.close();
+			workerSocket.close();
+			cluster.addFreeWorkerNode(node);
+			dos.writeInt(Opcode.job_finish);
+			dos.flush();
+			dis.close();
+			dos.close();
+			mSocket.close();
+			
+		}catch(IOException e){
+			e.printStackTrace();
+		}
+	}
+
+
+
+ }
+ 
+ class job_request{
+		public int jobId;
+		public String className;
+		public String request_address;
+		public int request_port;
+		public int numTasks;
+		public int taskIdStart;
+		Socket socket;
+		job_request(int m_jobId, String m_className, int m_numTasks, Socket m_socket){
+			jobId = m_jobId;
+			className = m_className;
+			numTasks = m_numTasks;
+			socket = m_socket;
+			taskIdStart = 0;
+		}
+ }
+	
+	class start_jobs extends Thread{
+		BlockingQueue<job_request> requests;
+		public void push(job_request data) throws InterruptedException {
+    	requests.put(data);
+ 		}
+		public job_request pop() throws InterruptedException {
+    	return requests.take();
+  	}
+		
+		start_jobs(){
+			requests = new LinkedBlockingQueue<job_request>();
+		}
+		
+		public void run(){
+			while(true){
+				try{
+					job_request current_request = pop();
+					
+					//get a free worker
+					WorkerNode n = cluster.getFreeWorkerNode();
+					n.connect_socket(new SocketWorker(n, current_request));
+				}catch(InterruptedException e){e.printStackTrace();}
+
+			}
+		}
+		
+		
+
+	}
+}
