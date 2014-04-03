@@ -16,4 +16,5 @@ public class Opcode {
   public static final int job_print = 23;
 
   public static final int task_finish = 31;
+  
 }
