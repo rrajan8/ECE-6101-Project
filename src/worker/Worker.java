@@ -90,8 +90,9 @@ public class Worker {
         socketSchd = new Socket(schedulerAddr, schedulerPort);
         dos = new DataOutputStream(socketSchd.getOutputStream());
         dos.writeInt(Opcode.task_finish);
-        dos.writeInt(Opcode.jobId);
-        dos.writeInt(worker_id);
+        dos.writeInt(jobId);
+        dos.writeInt(workerId);
+        dos.writeInt(taskId);
         dos.flush();
         dos.close();
         
