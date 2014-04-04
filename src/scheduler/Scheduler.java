@@ -20,8 +20,8 @@ public class Scheduler {
   Scheduler(int p) {
     schedulerPort = p;
 	executor = new start_jobs();
-	executor.start();
     cluster = new Cluster();
+    executor.start();
     jobIdNext = 1;
   }
 	
