@@ -192,6 +192,7 @@ public class Scheduler {
 		public int request_port;
 		public int numTasks;
 		public int taskIdStart;
+		public int completed_tasks;
 		public int outstandingTasks;
 		Socket socket;
 		job_request(int m_jobId, String m_className, int m_numTasks, Socket m_socket){
@@ -201,6 +202,7 @@ public class Scheduler {
 			socket = m_socket;
 			taskIdStart = 0;
 			outstandingTasks = 0;
+			completed_tasks = 0;
 		}
  }
 	
@@ -232,7 +234,7 @@ public class Scheduler {
 						job_request tempr = job.next();
 						if(tempr.jobId == tempId.jobId){
 							tempr.outstandingTasks--;
-							tempr.numTasks--;
+							tempr.completed_tasks++;
 							try{
 
 								DataOutputStream dos = new DataOutputStream(tempr.socket.getOutputStream());
@@ -242,7 +244,7 @@ public class Scheduler {
 								//dos.close();
 								job.set(tempr);
 								
-								if(tempr.numTasks <= 0){
+								if(tempr.completed_tasks == tempr.numTasks){
 										dos.writeInt(Opcode.job_finish);
 										dos.flush();
 										dos.close();
@@ -266,14 +268,19 @@ public class Scheduler {
 				//schedule
 				if(!requests.isEmpty()){
 					count = count % requests.size();
-					job_request temp = requests.get(count);
-					while((count < requests.size()) && (temp.outstandingTasks >= temp.numTasks)){
-						count = count % requests.size();
+					job_request temp = null;
+					boolean found = false;
+					
+					while(count < requests.size() && !found ){
 						temp = requests.get(count);
-						count++;
+						if(temp.outstandingTasks < (temp.numTasks - temp.completed_tasks))
+							found = true;
+						else
+							count++;
 						
 					}
-					if(temp.outstandingTasks < temp.numTasks){
+
+					if(found && temp!=null){
 						try{
 							Socket workerSocket = new Socket(node.addr, node.port);
 							DataOutputStream wos = new DataOutputStream(workerSocket.getOutputStream());
@@ -281,13 +288,12 @@ public class Scheduler {
 							wos.writeInt(Opcode.new_tasks);
 							wos.writeInt(temp.jobId);
 							wos.writeUTF(temp.className);
-							wos.writeInt(temp.outstandingTasks++);
+							wos.writeInt(temp.taskIdStart++);
 							wos.flush();
 							wos.close();
 							workerSocket.close();
-							System.out.println(count);
-							System.out.println(requests.size());
-							requests.set(count, temp);
+							temp.outstandingTasks++;
+							requests.set(count,temp);
 						}catch(Exception e){
 							e.printStackTrace();
 						}
