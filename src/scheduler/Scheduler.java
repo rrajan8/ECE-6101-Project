@@ -297,6 +297,7 @@ public class Scheduler {
 						}catch(Exception e){
 							e.printStackTrace();
 						}
+						count++;
 					}
 					else{
 						cluster.addFreeWorkerNode(node);
