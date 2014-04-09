@@ -352,6 +352,10 @@ public class Scheduler {
 		public HeartbeatManager(){
 			System.out.println("Creating HeartbeatManager Thread");
 			checkin = new ArrayList<Long>();
+			TimerTask purger = new purgeDeadWorkers();
+			Timer timer = new Timer(true);
+      		timer.scheduleAtFixedRate(purger, 0, 15 * 1000); // Schedules purger to run every 15 seconds		
+
 		}
 
 		public void start(){
@@ -402,22 +406,28 @@ public class Scheduler {
 
 			@Override
 	      	public void run(){
-	        	try{
-	        		 synchronized(checkin){
+	      		if(checkin!=null){
+		        	try{
+		        		synchronized(checkin){
 					      	Date timeNow = new Date();
 					      	long timeInMilliseconds = timeNow.getTime();
+					      	System.out.println(timeNow+" : Running purger");
 					      	for(int i = 0; i < checkin.size();i++){
-					      		if((checkin.get(i) - timeInMilliseconds)>15000){
+					      		System.out.println("checkin(i)="+checkin.get(i)+"  time now is"+ timeInMilliseconds);
+					      		if((timeInMilliseconds-checkin.get(i))>15000){
 					      			System.out.println("Worker "+ i +" is inactive");
-					      			checkin.set(i, null); 
+					      			//reschedule job here
+					      			long invalid = 0;
+					      			checkin.set(i, (Long)invalid); 
 					      		}
 					      	}
 	      					
 	      				}
-	        		
-	        	}catch (Exception e){
-	        		e.printStackTrace();
-	        	}
+		        		
+		        	}catch (Exception e){
+		        		e.printStackTrace();
+		        	}
+		        }
 	        }
 
 
@@ -426,8 +436,8 @@ public class Scheduler {
 	}
 
 
-	// may not need this
-	private class SocketLink{
+	// may not need this 
+	/*private class SocketLink{
 
 		private int workerID;
 		private int workerPort;
@@ -436,7 +446,7 @@ public class Scheduler {
 		SocketLink(int workerPort, int managerPort){
 
 		}
-	}
+	}*/
 
 
 
