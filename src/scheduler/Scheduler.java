@@ -326,4 +326,104 @@ public class Scheduler {
 			taskId = mtaskId;
 		}
 	}
+
+	final static int heartbeatPort = 4999; // Port used to listen for heartbeats
+	
+	class HeartbeatManager extends Thread {
+		
+		private Thread manager;
+		ArrayList<long>checkin=new ArrayList<long>(); // list keeping track of the worker's status
+
+		public HeartbeatManager(){
+			System.out.println("Creating HeartbeatManager Thread");
+			//checkin = new ArrayList<long>();
+		}
+
+		public void start(){
+			System.out.println("Starting Heartbeat Manager" );
+			if (manager == null)
+			{
+				manager = new Thread (this, "HeartbeatManager");
+				manager.start ();
+			}
+	    }
+
+	    public void run(){
+		    try{
+		    	ServerSocket heartbeatServer = new ServerSocket(heartbeatPort);
+		    	ArrayList <long> checkins; // list keeping track of the worker's status
+		    	int worker_id;
+		    	long dateMS; // variable to store the date in milliseconds
+		    	while(true){
+			    	Socket socket = heartbeatServer.accept();
+					DataInputStream dis = new DataInputStream(socket.getInputStream());
+
+
+					// Update the list. Use times? 
+					worker_id = dis.readInt();
+			        synchronized(checkin){
+				      	Date timeNow = new Date();
+				      	long timeInMilliseconds = timeNow.getTime();
+      					manager.checkin.set(worker_id, timeInMilliseconds);
+      				}
+					// Should probably should create a thread to update the list to keep the server open to accept heartbeats
+					System.out.println(new Date()+" : Heartbeat received from worker"+worker_id);
+
+			    	// Close sockets and streams when finished
+			    	dis.close();
+			    	socket.close();
+		    	}
+
+		    }catch(Exception e) {
+      			e.printStackTrace();
+    		}
+
+	    }
+
+	    private class purgeDeadWorkers extends TimerTask{
+		
+		    public purgeDeadWorkers(){
+
+		    }
+
+			@Override
+	      	public void run(){
+	        	try{
+	        		 synchronized(checkin){
+					      	Date timeNow = new Date();
+					      	long timeInMilliseconds = timenow.getTime();
+					      	for(int i = 0; i < checkin.size();i++){
+					      		if((checkin.get(i) - timeInMilliseconds)>15000){
+					      			System.out.println("Worker "+ i +" is inactive");
+					      			checkin.set(i, 0); 
+					      		}
+					      	}
+	      					manager.checkin.add(n.id, timeInMilliseconds);
+	      				}
+	        		
+	        	}catch (Exception e){
+	        		e.printStackTrace();
+	        	}
+	        }
+
+
+		} 
+
+	}
+
+
+	// may not need this
+	private class SocketLink{
+
+		private int workerID;
+		private int workerPort;
+		private int managerPort;
+
+		SocketLink(int workerPort, int managerPort){
+
+		}
+	}
+
+}
+
 }
