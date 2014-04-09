@@ -5,6 +5,12 @@ import java.net.*;
 import java.util.ArrayList;
 import java.util.ListIterator;
 import java.util.LinkedList;
+import java.util.Date;
+import java.util.Timer;
+import java.util.TimerTask;
+
+
+
 
 
 import common.*;
@@ -122,10 +128,13 @@ public class Scheduler {
   class Cluster {
     public ArrayList<WorkerNode> workers; //all the workers
     LinkedList<WorkerNode> freeWorkers; //the free workers
+    HeartbeatManager manager;
     
     Cluster() {
       workers = new ArrayList<WorkerNode>();
       freeWorkers = new LinkedList<WorkerNode>();
+      manager = new HeartbeatManager();
+      manager.start();
     }
 
     WorkerNode createWorkerNode(String addr, int port) {
@@ -136,6 +145,12 @@ public class Scheduler {
         workers.add(n);
       }
       addFreeWorkerNode(n);
+
+      synchronized(manager.checkin){
+		Date timeNow = new Date();
+		long timeInMilliseconds = timeNow.getTime();
+      	manager.checkin.add(n.id, (Long)timeInMilliseconds);
+      }
 
       return n;
     }
@@ -332,11 +347,11 @@ public class Scheduler {
 	class HeartbeatManager extends Thread {
 		
 		private Thread manager;
-		ArrayList<long>checkin=new ArrayList<long>(); // list keeping track of the worker's status
+		ArrayList<Long>checkin; // list keeping track of the worker's status
 
 		public HeartbeatManager(){
 			System.out.println("Creating HeartbeatManager Thread");
-			//checkin = new ArrayList<long>();
+			checkin = new ArrayList<Long>();
 		}
 
 		public void start(){
@@ -351,7 +366,6 @@ public class Scheduler {
 	    public void run(){
 		    try{
 		    	ServerSocket heartbeatServer = new ServerSocket(heartbeatPort);
-		    	ArrayList <long> checkins; // list keeping track of the worker's status
 		    	int worker_id;
 		    	long dateMS; // variable to store the date in milliseconds
 		    	while(true){
@@ -364,7 +378,7 @@ public class Scheduler {
 			        synchronized(checkin){
 				      	Date timeNow = new Date();
 				      	long timeInMilliseconds = timeNow.getTime();
-      					manager.checkin.set(worker_id, timeInMilliseconds);
+      					checkin.set(worker_id, timeInMilliseconds);
       				}
 					// Should probably should create a thread to update the list to keep the server open to accept heartbeats
 					System.out.println(new Date()+" : Heartbeat received from worker"+worker_id);
@@ -391,14 +405,14 @@ public class Scheduler {
 	        	try{
 	        		 synchronized(checkin){
 					      	Date timeNow = new Date();
-					      	long timeInMilliseconds = timenow.getTime();
+					      	long timeInMilliseconds = timeNow.getTime();
 					      	for(int i = 0; i < checkin.size();i++){
 					      		if((checkin.get(i) - timeInMilliseconds)>15000){
 					      			System.out.println("Worker "+ i +" is inactive");
-					      			checkin.set(i, 0); 
+					      			checkin.set(i, null); 
 					      		}
 					      	}
-	      					manager.checkin.add(n.id, timeInMilliseconds);
+	      					
 	      				}
 	        		
 	        	}catch (Exception e){
@@ -424,6 +438,6 @@ public class Scheduler {
 		}
 	}
 
-}
+
 
 }
