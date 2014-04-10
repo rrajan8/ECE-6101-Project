@@ -106,9 +106,8 @@ public class Scheduler {
 			int workId = dis.readInt();
 			int taskId = dis.readInt();
 
-
-			cluster.addFreeWorkerNode(cluster.workers.get(workId));
 			executor.finished_tasks.add(new response(jobId, workId, taskId));
+			cluster.addFreeWorkerNode(cluster.workers.get(workId));
 
 			dis.close();
 			dos.close();
@@ -161,6 +160,8 @@ public class Scheduler {
   	  	n.addr = addr;
   	  	n.port = port;
   	  	n.status = 0;
+  	  	n.jobID = -1;
+  	  	n.taskID = -1;
   	  	workers.set(n.id, n);
   	  	addFreeWorkerNode(n);
   	  	System.out.println("Reusing id "+ n.id);
@@ -279,7 +280,7 @@ public class Scheduler {
 							tempr.completed_tasks++;
 							int workerID = tempId.workId;
 							//System.out.println("1) status of worker "+workerID+" is "+cluster.workers.get(workerID).status );
-							cluster.workers.get(workerID).status = -1;
+							//cluster.workers.get(workerID).status = -1;
 							//System.out.println("2) status of worker "+workerID+" is "+cluster.workers.get(workerID).status );
 
 
@@ -433,7 +434,10 @@ public class Scheduler {
 			        synchronized(checkin){
 				      	Date timeNow = new Date();
 				      	long timeInMilliseconds = timeNow.getTime();
-      					checkin.set(worker_id, timeInMilliseconds);
+				      	if(checkin.size()>worker_id)
+      						checkin.set(worker_id, timeInMilliseconds);
+      					else System.out.println("The worker was never added to this system." 
+      						+"The worker may have been started prior to the Scheduler. Please restart worker."+worker_id);
       				}
 					// Should probably should create a thread to update the list to keep the server open to accept heartbeats
 					//System.out.println(new Date()+" : Heartbeat received from worker"+worker_id);
