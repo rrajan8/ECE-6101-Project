@@ -401,7 +401,7 @@ public class Scheduler {
 		ArrayList<Long>checkin; // list keeping track of the worker's status
 
 		public HeartbeatManager(){
-			System.out.println("Creating HeartbeatManager Thread");
+			//System.out.println("Creating HeartbeatManager Thread");
 			checkin = new ArrayList<Long>();
 			TimerTask purger = new purgeDeadWorkers();
 			Timer timer = new Timer(true);
@@ -410,7 +410,7 @@ public class Scheduler {
 		}
 
 		public void start(){
-			System.out.println("Starting Heartbeat Manager" );
+			//System.out.println("Starting Heartbeat Manager" );
 			if (manager == null)
 			{
 				manager = new Thread (this, "HeartbeatManager");
@@ -436,7 +436,7 @@ public class Scheduler {
       					checkin.set(worker_id, timeInMilliseconds);
       				}
 					// Should probably should create a thread to update the list to keep the server open to accept heartbeats
-					System.out.println(new Date()+" : Heartbeat received from worker"+worker_id);
+					//System.out.println(new Date()+" : Heartbeat received from worker"+worker_id);
 
 			    	// Close sockets and streams when finished
 			    	dis.close();
@@ -465,9 +465,9 @@ public class Scheduler {
 					      	long timeInMilliseconds = timeNow.getTime();
 					      	System.out.println(timeNow+" : Running purger");
 					      	for(int i = 0; i < checkin.size();i++){
-					      		//System.out.println("checkin(i)="+checkin.get(i)+"  time now is"+ timeInMilliseconds);
-					      		if((timeInMilliseconds-checkin.get(i))>15000){
-					      			System.out.println("Worker "+ i +" is inactive");
+					      		//System.out.println("checkin("+i+")="+checkin.get(i));
+					      		if(checkin.get(i)>0 && (timeInMilliseconds-checkin.get(i))>15000){
+					      			System.out.println("Worker "+ i +" is inactive and was removed from the system");
 					      			if(cluster.workers.get(i).status == 2){ 
 					      			// if node was busy, set the status of the task it was working on back to -1
 						      			cluster.workers.get(i).status = 4;
@@ -475,9 +475,12 @@ public class Scheduler {
 						      			int taskID= cluster.workers.get(i).taskID;
 
 						      			// This loop finds the job, and sets the task back to -1 so it is reassigned to a worker
-						      			for(int j=0; j< executor.requests.size(); i++){
+						      			System.out.println("The node was busy when it died, resetting the task it was working on");
+						      			for(int j=0; j< executor.requests.size(); j++){
 						      				if(executor.requests.get(j).jobId == jobID){
+						      					System.out.println("The task it was working on was job:"+jobID+" task:"+taskID);
 						      					executor.requests.get(j).task.set(taskID, -1); 
+						      					executor.requests.get(j).outstandingTasks--;
 						      				}
 						      			}
 

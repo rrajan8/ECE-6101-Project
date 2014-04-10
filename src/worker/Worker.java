@@ -64,6 +64,7 @@ public class Worker {
       socket.close();
 
       //Create a heartbeat for the worker
+      System.out.println("Creating Heartbeat");
       TimerTask heartbeat = new WorkerHeartbeat(workerId, 49999); //49999 is the heartbeat scheduler's port might pass that through the stream
       Timer timer = new Timer(true);
       timer.scheduleAtFixedRate(heartbeat, 0, 10 * 1000); // 10 sec * 1000 ms
