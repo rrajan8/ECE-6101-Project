@@ -14,7 +14,7 @@ public class Hello extends Job {
   public void task(int tId) {
     System.out.println("task"+tId+": Hello World"); //this string will be printed out from worker instead of client
     try{
-      Thread.sleep(1000);
+      Thread.sleep(15000);
     } catch(Exception e) {
       e.printStackTrace();
     }

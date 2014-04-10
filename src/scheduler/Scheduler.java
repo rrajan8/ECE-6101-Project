@@ -3,6 +3,7 @@ package scheduler;
 import java.io.*;
 import java.net.*;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.ListIterator;
 import java.util.LinkedList;
 import java.util.Date;
@@ -105,6 +106,7 @@ public class Scheduler {
 			int workId = dis.readInt();
 			int taskId = dis.readInt();
 
+
 			cluster.addFreeWorkerNode(cluster.workers.get(workId));
 			executor.finished_tasks.add(new response(jobId, workId, taskId));
 
@@ -128,29 +130,49 @@ public class Scheduler {
   class Cluster {
     public ArrayList<WorkerNode> workers; //all the workers
     LinkedList<WorkerNode> freeWorkers; //the free workers
+    LinkedList<WorkerNode> deadWorkers; //workers that were dead
     HeartbeatManager manager;
     
     Cluster() {
       workers = new ArrayList<WorkerNode>();
       freeWorkers = new LinkedList<WorkerNode>();
+      deadWorkers = new LinkedList<WorkerNode>();
       manager = new HeartbeatManager();
       manager.start();
     }
 
     WorkerNode createWorkerNode(String addr, int port) {
       WorkerNode n = null;
+      if(deadWorkers.isEmpty()){
+     	 synchronized(workers) {
+        	n = new WorkerNode(workers.size(), addr, port);
+        	workers.add(n);
+      	 }
+      		addFreeWorkerNode(n);
+		    synchronized(manager.checkin){
+				Date timeNow = new Date();
+				long timeInMilliseconds = timeNow.getTime();
+		      	manager.checkin.add(n.id, (Long)timeInMilliseconds);
+      		}
+  	  }
+  	  else{
+  	  	//recycle worker node 
+  	  	n = deadWorkers.remove();
+  	  	n.addr = addr;
+  	  	n.port = port;
+  	  	n.status = 0;
+  	  	workers.set(n.id, n);
+  	  	addFreeWorkerNode(n);
+  	  	System.out.println("Reusing id "+ n.id);
+  	  	synchronized(manager.checkin){
+			Date timeNow = new Date();
+			long timeInMilliseconds = timeNow.getTime();
+	      	manager.checkin.set(n.id, (Long)timeInMilliseconds);
+      	}
+  	  }
 
-      synchronized(workers) {
-        n = new WorkerNode(workers.size(), addr, port);
-        workers.add(n);
-      }
-      addFreeWorkerNode(n);
 
-      synchronized(manager.checkin){
-		Date timeNow = new Date();
-		long timeInMilliseconds = timeNow.getTime();
-      	manager.checkin.add(n.id, (Long)timeInMilliseconds);
-      }
+
 
       return n;
     }
@@ -188,6 +210,8 @@ public class Scheduler {
     String addr;
     int port;
     int status; //WorkerNode status: 0-sleep, 1-free, 2-busy, 4-failed
+    int jobID;
+    int taskID;
 	
 
     WorkerNode(int i, String a, int p) {
@@ -195,6 +219,8 @@ public class Scheduler {
       addr = a;
       port = p;
       status = 0;
+      jobID = -1;
+      taskID = -1;
     }
 
 		
@@ -205,17 +231,18 @@ public class Scheduler {
 		public String className;
 		public String request_address;
 		public int request_port;
-		public int numTasks;
 		public int taskIdStart;
 		public int completed_tasks;
 		public int outstandingTasks;
+		public ArrayList <Integer>task;
+
 		Socket socket;
 		job_request(int m_jobId, String m_className, int m_numTasks, Socket m_socket){
 			jobId = m_jobId;
 			className = m_className;
-			numTasks = m_numTasks;
+			task = new ArrayList<Integer>(Collections.nCopies(m_numTasks, -1));
+			//for(int i=0; i<task.size();i++)System.out.println("task["+i+"] = "+ task.get(i)); //copy+paste this line to check the status of the tasks
 			socket = m_socket;
-			taskIdStart = 0;
 			outstandingTasks = 0;
 			completed_tasks = 0;
 		}
@@ -244,12 +271,18 @@ public class Scheduler {
 				//update
 				while(!finished_tasks.isEmpty()){
 					response tempId = finished_tasks.remove(0);
-					ListIterator<job_request> job = requests.listIterator();
-					while(job.hasNext()){
-						job_request tempr = job.next();
+					//ListIterator<job_request> job = requests.listIterator();
+					for(int i = 0; i < requests.size();i++){
+						job_request tempr = requests.get(i);
 						if(tempr.jobId == tempId.jobId){
 							tempr.outstandingTasks--;
 							tempr.completed_tasks++;
+							int workerID = tempId.workId;
+							//System.out.println("1) status of worker "+workerID+" is "+cluster.workers.get(workerID).status );
+							cluster.workers.get(workerID).status = -1;
+							//System.out.println("2) status of worker "+workerID+" is "+cluster.workers.get(workerID).status );
+
+
 							try{
 
 								DataOutputStream dos = new DataOutputStream(tempr.socket.getOutputStream());
@@ -257,15 +290,14 @@ public class Scheduler {
 								dos.writeUTF("task " + tempId.taskId + " finished on worker " + tempId.workId);
 								dos.flush();
 								//dos.close();
-								job.set(tempr);
+								requests.set(i,tempr);
 								
-								if(tempr.completed_tasks == tempr.numTasks){
+								if(tempr.completed_tasks == tempr.task.size()){
 										dos.writeInt(Opcode.job_finish);
 										dos.flush();
 										dos.close();
 										tempr.socket.close();
-										job.remove();
-									
+										requests.remove(i);
 								}
 									
 
@@ -273,6 +305,7 @@ public class Scheduler {
 							}catch(Exception e){
 								e.printStackTrace();
 							}
+							break;
 						}
 					}
 				}
@@ -288,7 +321,7 @@ public class Scheduler {
 					
 					while(count < requests.size() && !found ){
 						temp = requests.get(count);
-						if(temp.outstandingTasks < (temp.numTasks - temp.completed_tasks))
+						if(temp.task.size()-(temp.outstandingTasks+temp.completed_tasks) > 0)
 							found = true;
 						else
 							count++;
@@ -297,13 +330,30 @@ public class Scheduler {
 
 					if(found && temp!=null){
 						try{
+
 							Socket workerSocket = new Socket(node.addr, node.port);
 							DataOutputStream wos = new DataOutputStream(workerSocket.getOutputStream());
+							int taskID = 0;
+
+							// This is guaranteed to initialize taskID
+							for(int i=0; i<temp.task.size() ; i++){
+								if(temp.task.get(i)==-1){
+									temp.task.set(i,node.id);
+									taskID=i;
+
+									node.taskID = i;
+									node.jobID= temp.jobId;
+									
+									break;
+								}
+							} 
+
+							System.out.println("Assigning task "+taskID+" from job "+temp.jobId+" at worker "+ node.id);
 
 							wos.writeInt(Opcode.new_tasks);
 							wos.writeInt(temp.jobId);
 							wos.writeUTF(temp.className);
-							wos.writeInt(temp.taskIdStart++);
+							wos.writeInt(taskID);
 							wos.flush();
 							wos.close();
 							workerSocket.close();
@@ -343,7 +393,7 @@ public class Scheduler {
 		}
 	}
 
-	final static int heartbeatPort = 4999; // Port used to listen for heartbeats
+	final static int heartbeatPort = 49999; // Port used to listen for heartbeats
 	
 	class HeartbeatManager extends Thread {
 		
@@ -408,18 +458,59 @@ public class Scheduler {
 			@Override
 	      	public void run(){
 	      		if(checkin!=null){
+	      			System.out.println("size of checkin is "+checkin.size());
 		        	try{
 		        		synchronized(checkin){
 					      	Date timeNow = new Date();
 					      	long timeInMilliseconds = timeNow.getTime();
 					      	System.out.println(timeNow+" : Running purger");
 					      	for(int i = 0; i < checkin.size();i++){
-					      		System.out.println("checkin(i)="+checkin.get(i)+"  time now is"+ timeInMilliseconds);
+					      		//System.out.println("checkin(i)="+checkin.get(i)+"  time now is"+ timeInMilliseconds);
 					      		if((timeInMilliseconds-checkin.get(i))>15000){
 					      			System.out.println("Worker "+ i +" is inactive");
-					      			//reschedule job here
-					      			long invalid = 0;
-					      			checkin.set(i, (Long)invalid); 
+					      			if(cluster.workers.get(i).status == 2){ 
+					      			// if node was busy, set the status of the task it was working on back to -1
+						      			cluster.workers.get(i).status = 4;
+						      			int jobID = cluster.workers.get(i).jobID;
+						      			int taskID= cluster.workers.get(i).taskID;
+
+						      			// This loop finds the job, and sets the task back to -1 so it is reassigned to a worker
+						      			for(int j=0; j< executor.requests.size(); i++){
+						      				if(executor.requests.get(j).jobId == jobID){
+						      					executor.requests.get(j).task.set(taskID, -1); 
+						      				}
+						      			}
+
+						      			//this line adds it to the dead list
+						      			cluster.deadWorkers.add(cluster.workers.get(i));
+
+						      			 
+						      		}
+						      		else if(cluster.workers.get(i).status == 1){
+						      			// if node was free, remove it from the freelist
+						      			try{
+						      				synchronized(cluster.freeWorkers){
+						      					WorkerNode node;
+						      					for(int j = 0; j < cluster.freeWorkers.size(); j++){
+						      						node = cluster.freeWorkers.get(j);
+						      						if(node.id== i){
+						      							cluster.freeWorkers.remove(node);
+						      							node.status =4;
+						      							cluster.deadWorkers.add(node);
+						      							break;
+						      						}
+						      					}
+						      				}
+						      				
+						      			} catch (Exception e){
+						      				e.printStackTrace();
+						      			}
+						      		}
+
+						      		//Set it invalid, 0, in the check-in for the heartbeat 
+									long invalid = 0;
+					      			checkin.set(i, (Long)invalid);
+						      		// Add to Deadlist here
 					      		}
 					      	}
 	      					
