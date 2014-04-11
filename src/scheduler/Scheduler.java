@@ -236,6 +236,7 @@ public class Scheduler {
 		public int completed_tasks;
 		public int outstandingTasks;
 		public ArrayList <Integer>task;
+		public boolean alreadyStarted;
 
 		Socket socket;
 		job_request(int m_jobId, String m_className, int m_numTasks, Socket m_socket){
@@ -246,6 +247,7 @@ public class Scheduler {
 			socket = m_socket;
 			outstandingTasks = 0;
 			completed_tasks = 0;
+			alreadyStarted = false;
 		}
  }
 	
@@ -350,7 +352,12 @@ public class Scheduler {
 							} 
 
 							System.out.println("Assigning task "+taskID+" from job "+temp.jobId+" at worker "+ node.id);
-
+							if(!temp.alreadyStarted){
+								DataOutputStream dos = new DataOutputStream(temp.socket.getOutputStream());
+								dos.writeInt(Opcode.job_start);
+								dos.flush();
+								temp.alreadyStarted = true;
+							}
 							wos.writeInt(Opcode.new_tasks);
 							wos.writeInt(temp.jobId);
 							wos.writeUTF(temp.className);
@@ -358,6 +365,7 @@ public class Scheduler {
 							wos.flush();
 							wos.close();
 							workerSocket.close();
+							
 							temp.outstandingTasks++;
 							requests.set(count,temp);
 						}catch(Exception e){
