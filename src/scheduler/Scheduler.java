@@ -7,6 +7,8 @@ import java.util.Collections;
 import java.util.ListIterator;
 import java.util.LinkedList;
 import java.util.Date;
+import java.text.DateFormat;
+import java.text.SimpleDateFormat;
 import java.util.Timer;
 import java.util.TimerTask;
 
@@ -348,8 +350,9 @@ public class Scheduler {
 									break;
 								}
 							} 
-
-							System.out.println("Assigning task "+taskID+" from job "+temp.jobId+" at worker "+ node.id);
+							Date time = new Date();
+							DateFormat formatter = new SimpleDateFormat("HH:mm:ss:SSS");
+							System.out.println(formatter.format(time)+" : Assigning task "+taskID+" from job "+temp.jobId+" at worker "+ node.id);
 
 							wos.writeInt(Opcode.new_tasks);
 							wos.writeInt(temp.jobId);
@@ -462,7 +465,7 @@ public class Scheduler {
 			@Override
 	      	public void run(){
 	      		if(checkin!=null){
-	      			System.out.println("size of checkin is "+checkin.size());
+	      			//System.out.println("size of checkin is "+checkin.size());
 		        	try{
 		        		synchronized(checkin){
 					      	Date timeNow = new Date();
